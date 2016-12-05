@@ -11,90 +11,39 @@ $CONFIG=array();
 require "config.php";
 
 
-if (isset($_GET["delay"])) {
-	$d = $_GET["delay"];
-	$now=time();
-	if (!is_numeric($d) || $d>86401)
-		$now=-1;
-	else if ($d>0)
-		$now += $d;
-	else	
-		$now=-1;
-
-
-	file_put_contents($CONFIG['delayFile'],$now);
-
-	print "Delaying until [$now]";
-	exit;
-}
-
-
-$exp = -1;
-if (file_exists($CONFIG['delayFile']))
-	$exp = file_get_contents($CONFIG['delayFile']);
-
 $now=time();
 
 
-// Retrieve the request's body and parse it as JSON
-$input = @file_get_contents("php://input");
-$event_json = json_decode($input);
 
-$zone = $event_json->{'message'};
+$files = scandir($CONFIG['openDoorPath']);
 
 
 
-$fault=false;
-$restore=false;
-$door=true;
-//Zones to skip alert
-$alert=true;
-if ($zone == "Zone Foyer Motion (8) has been faulted.") {
-	$alert=false;
-	$door=false;
-}
-if ($zone == "Zone Basement motion (10) has been faulted.") {
-	$alert=false;
-	$door=false;
-}
-if (preg_match("/has been restored/",$zone)) {
-	$alert=false;
-	$restore=true;
-} else {
-	$fault=true;
-}
-
-
-//Log entry to file
-if ($CONFIG['log']) {
-	file_put_contents($CONFIG['logFile'],date(DATE_ATOM)." ".$zone."\n",FILE_APPEND);
-}
-
-
-$zoneID=0;
-if (preg_match("/\((\d+)\)/",$zone,$matches)) {
-	$zoneID=$matches[1];
-}
-
-if ($zoneID != 0 && $door) {
-	$openDoorFile = $CONFIG['openDoorPath']."/door-".$zoneID.".open";
-	if ($fault) {
-		file_put_contents($openDoorFile, time());
-	} else if ($restore) {
-		unlink($openDoorFile);
+$alert=false;
+$message="";
+foreach ($files as $file) {
+	print $file."<br />";
+	if (preg_match("/door-(\d+).open/",$file,$matches)) {
+		$door=$matches[1];
+		$openTime = file_get_contents($CONFIG['openDoorPath']."/".$file);
+		
+		$diff = $now - $openTime;
+		print "$now - $openTime = $diff <br />";
+		if ($diff > 60  && $diff < 122) {
+			$alert=true;
+			$message="Door $door has been open for $diff seconds";
+		}
+		if ($diff > 60*5  && $diff < 60*6+2) {
+			$alert=true;
+			$message="Door $door has been open for $diff seconds";
+		}
+		if ($diff > 60*10) {
+			$alert=true;
+			$message="Door $door has been open for $diff seconds";
+		}
 	}
 }
 
-//Clean up text
-$zone = preg_replace("/^Zone /","",$zone);
-$zone = preg_replace("/ \(\d+\) has been faulted.$/","",$zone);
-	
-
-
-//If delay active, skip alert
-if ($now < $exp) {
-	$alert=false;
-}
 
 
 //pushover
@@ -105,7 +54,7 @@ if ($alert && $CONFIG['pushover']) {
 	  CURLOPT_POSTFIELDS => array(
 	    "token" => $CONFIG['pushoverToken'],
 	    "user" => $CONFIG['pushoverUser'],
-	    "message" => $zone,
+	    "message" => $message,
 	  ),
 	  CURLOPT_SAFE_UPLOAD => true,
 	));
@@ -115,16 +64,6 @@ if ($alert && $CONFIG['pushover']) {
 }
 
 
-//slack
-if ($CONFIG['slack']) {
-	slack($zone,"alarm");
-}
-
-
-
-
-
-//growl
 if ($CONFIG['growl']) {
 	$notifications = array(
 	    'GROWL_NOTIFY_STATUS' => array(
@@ -146,7 +85,7 @@ if ($CONFIG['growl']) {
 	    $growl = Net_Growl::singleton($appName, $notifications, $password, $options);
 
 	    $name        = 'GROWL_NOTIFY_STATUS';
-	    $title       = $zone;
+	    $title       = $message;
 	    $description = '';
 	    $growl->publish($name, $title, $description);
 
