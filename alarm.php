@@ -28,6 +28,19 @@ if (isset($_GET["delay"])) {
 	exit;
 }
 
+if (isset($_GET['ignoreopen'])) {
+	$files = scandir($CONFIG['openDoorPath']);
+	foreach ($files as $file) {
+		print $file."<br />";
+		if (preg_match("/door-(\d+).open/",$file,$matches)) {
+			print "  - removing this one<br />";
+			unlink($CONFIG['openDoorPath']."/".$file);
+		}
+	}
+	print "doors 'closed'";
+	exit;
+}
+
 
 $exp = -1;
 if (file_exists($CONFIG['delayFile']))
@@ -105,6 +118,8 @@ if ($alert && $CONFIG['pushover']) {
 	  CURLOPT_POSTFIELDS => array(
 	    "token" => $CONFIG['pushoverToken'],
 	    "user" => $CONFIG['pushoverUser'],
+		"priority" => "1",
+		"sound" => "pushover",
 	    "message" => $zone,
 	  ),
 	  CURLOPT_SAFE_UPLOAD => true,
